@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -42,6 +43,11 @@ namespace ImagePeek.TestHost
                 {
                     string file = args.Length > 1 ? args[1] : null;
                     return ThumbFactoryVerify(file);
+                }
+                if (cmd == "anim")
+                {
+                    string file = args.Length > 1 ? args[1] : null;
+                    return AnimatedTest(file);
                 }
                 if (cmd == "magicktest")
                 {
@@ -282,6 +288,26 @@ namespace ImagePeek.TestHost
             public static extern void SHCreateItemFromParsingName(string pszPath, IntPtr pbc, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
         }
 
+        // ---------- 动图解码测试 ----------
+
+        private static int AnimatedTest(string file)
+        {
+            Console.WriteLine("=== 动图解码测试 ===");
+            try
+            {
+                var a = DecodeCore.DecodeAnimated(file, 800);
+                Console.WriteLine("  帧数: " + a.Frames.Count + "  尺寸: " + a.Frames[0].Width + "x" + a.Frames[0].Height);
+                Console.WriteLine("  延迟(ms): " + string.Join(",", a.DelaysMs.Take(8)) + (a.DelaysMs.Count > 8 ? " ..." : ""));
+                Console.WriteLine("  [OK] 帧数 > 1，可播放");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  [FAIL] " + ex.Message);
+                return 1;
+            }
+        }
+
         // ---------- Magick 最小调用测试 ----------
 
         private static int MagickMinimalTest()
@@ -363,6 +389,36 @@ namespace ImagePeek.TestHost
                 bmp.Save(Path.Combine(dir, "test.jpg"), System.Drawing.Imaging.ImageFormat.Jpeg);
                 bmp.Save(Path.Combine(dir, "test.bmp"), System.Drawing.Imaging.ImageFormat.Bmp);
                 bmp.Save(Path.Combine(dir, "test.gif"), System.Drawing.Imaging.ImageFormat.Gif);
+            }
+
+            try
+            {
+                // 动图样张：4 帧彩色圆点移动的 GIF + WebP
+                using (var coll = new ImageMagick.MagickImageCollection())
+                {
+                    var frameColors = new[]
+                    {
+                        ImageMagick.MagickColors.Red,
+                        ImageMagick.MagickColors.LimeGreen,
+                        ImageMagick.MagickColors.RoyalBlue,
+                        ImageMagick.MagickColors.Orange
+                    };
+                    foreach (var color in frameColors)
+                    {
+                        using (var frame = new ImageMagick.MagickImage(color, 200, 200))
+                        {
+                            frame.AnimationDelay = 10;
+                            coll.Add(frame.Clone());
+                        }
+                    }
+                    coll.Write(Path.Combine(dir, "anim.gif"));
+                    coll.Write(Path.Combine(dir, "anim.webp"));
+                }
+                Console.WriteLine("  动图样张已生成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  [WARN] 动图样张生成失败: " + ex.Message);
             }
 
             // Magick 生成现代/专业格式样张

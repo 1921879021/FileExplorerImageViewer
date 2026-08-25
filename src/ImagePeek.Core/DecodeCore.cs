@@ -21,6 +21,16 @@ namespace ImagePeek.Core
         public int Height => Bitmap != null ? Bitmap.Height : 0;
     }
 
+    public sealed class AnimatedDecodeResult
+    {
+        public System.Collections.Generic.List<Bitmap> Frames { get; } = new System.Collections.Generic.List<Bitmap>();
+        public System.Collections.Generic.List<int> DelaysMs { get; } = new System.Collections.Generic.List<int>();
+        public bool HasAlpha { get; internal set; }
+        public string Decoder { get; internal set; }
+        public double Ms { get; internal set; }
+        public long FileSize { get; internal set; }
+    }
+
     /// <summary>
     /// 两级解码核心：
     ///   L1 GDI+   —— jpg/png/gif/bmp/tiff/ico 等常规格式，速度最快
@@ -112,6 +122,75 @@ namespace ImagePeek.Core
                 throw new InvalidOperationException(
                     "GDI+: " + gdiError.Message + " | Magick: " + magickError.Message, magickError);
             }
+        }
+
+        // ---------- 动图（GIF / WebP 动画，Magick 逐帧） ----------
+
+        /// <summary>
+        /// 解码动图的全部帧。使用 Magick 的 Coalesce 合成增量帧，
+        /// 帧数上限 48、尺寸上限 maxPixels（≤1024）以控制内存。
+        /// </summary>
+        public static AnimatedDecodeResult DecodeAnimated(string path, int maxPixels, CancellationToken ct = default(CancellationToken))
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                throw new FileNotFoundException("文件不存在", path);
+            }
+            if (!NativeLoader.EnsureLoaded())
+            {
+                throw new NotSupportedException("Magick 原生组件不可用");
+            }
+
+            if (maxPixels <= 0 || maxPixels > 1024)
+            {
+                maxPixels = 1024;
+            }
+
+            ct.ThrowIfCancellationRequested();
+
+            long size = 0;
+            try { size = new FileInfo(path).Length; } catch { }
+
+            var sw = Stopwatch.StartNew();
+            var result = new AnimatedDecodeResult { Decoder = "Magick(anim)" };
+
+            using (var coll = new ImageMagick.MagickImageCollection(path))
+            {
+                if (coll.Count <= 1)
+                {
+                    throw new InvalidOperationException("不是动图（只有一帧）");
+                }
+
+                coll.Coalesce();   // 合成增量帧，保证每帧完整
+                int count = Math.Min(coll.Count, 48);
+
+                for (int i = 0; i < count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var frame = coll[i];
+                    if (frame.Width > maxPixels || frame.Height > maxPixels)
+                    {
+                        frame.Resize((uint)maxPixels, (uint)maxPixels);
+                    }
+                    frame.Format = ImageMagick.MagickFormat.Png;
+                    byte[] png = frame.ToByteArray();
+                    result.Frames.Add(new Bitmap(new MemoryStream(png)));
+
+                    int delay = (int)frame.AnimationDelay * 10;   // ticks(1/100s) → ms
+                    if (delay < 20)
+                    {
+                        delay = 100;   // 防止 0 延迟闪屏
+                    }
+                    result.DelaysMs.Add(delay);
+                }
+
+                result.HasAlpha = coll[0].HasAlpha;
+            }
+
+            sw.Stop();
+            result.Ms = sw.Elapsed.TotalMilliseconds;
+            result.FileSize = size;
+            return result;
         }
 
         // ---------- L1 GDI+ ----------

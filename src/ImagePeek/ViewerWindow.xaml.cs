@@ -134,6 +134,7 @@ namespace ImagePeek
                 return;
             }
 
+            StopAnimation();
             string path = _files[_index];
             int seq = ++_loadSeq;
 
@@ -142,8 +143,50 @@ namespace ImagePeek
             InfoText.Text = "加载中…";
             Img.Source = null;
 
+            string ext = Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+            bool maybeAnim = ext == "GIF" || ext == "WEBP";
+
             Task.Run(() =>
             {
+                // 动图优先：逐帧解码并播放
+                if (maybeAnim)
+                {
+                    try
+                    {
+                        var a = DecodeCore.DecodeAnimated(path, ViewerMaxPixels);
+                        if (a.Frames.Count > 0)
+                        {
+                            var sources = a.Frames.Select(ToImageSource).ToArray();
+                            var delays = a.DelaysMs.ToArray();
+                            int totalMs = delays.Sum();
+                            Dispatcher.BeginInvoke((Action)(() =>
+                            {
+                                if (seq != _loadSeq)
+                                {
+                                    return;
+                                }
+
+                                Img.Source = sources[0];
+                                _fitMode = true;
+                                ApplyFit();
+                                InfoText.Text = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   {6:P0}",
+                                    a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
+                                    sources.Length, totalMs / 1000.0, _zoom);
+                                if (sources.Length > 1)
+                                {
+                                    StartAnimation(sources, delays);
+                                }
+                            }));
+                            Task.Run(() => PreloadNeighbors());
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        // 落回静态解码
+                    }
+                }
+
                 DecodeResult r;
                 try
                 {
@@ -181,6 +224,46 @@ namespace ImagePeek
                 // 相邻预加载：当前图显示后立刻解码前后各 2 张进缓存
                 Task.Run(() => PreloadNeighbors());
             });
+        }
+
+        // ---------- 动图播放（WPF DispatcherTimer）----------
+
+        private System.Windows.Threading.DispatcherTimer _animTimer;
+        private System.Windows.Media.Imaging.BitmapSource[] _animSources;
+        private int[] _animDelays;
+        private int _animIndex;
+
+        private void StartAnimation(System.Windows.Media.Imaging.BitmapSource[] sources, int[] delays)
+        {
+            _animSources = sources;
+            _animDelays = delays;
+            _animIndex = 0;
+
+            if (_animTimer == null)
+            {
+                _animTimer = new System.Windows.Threading.DispatcherTimer();
+                _animTimer.Tick += (s, e) =>
+                {
+                    if (_animSources == null || _animSources.Length < 2)
+                    {
+                        _animTimer.Stop();
+                        return;
+                    }
+                    _animIndex = (_animIndex + 1) % _animSources.Length;
+                    Img.Source = _animSources[_animIndex];
+                    _animTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(20, _animDelays[_animIndex]));
+                };
+            }
+            _animTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(20, delays[0]));
+            _animTimer.Start();
+        }
+
+        private void StopAnimation()
+        {
+            _animTimer?.Stop();
+            _animSources = null;
+            _animDelays = null;
+            _animIndex = 0;
         }
 
         private void PreloadNeighbors()

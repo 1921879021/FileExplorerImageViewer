@@ -177,6 +177,62 @@ namespace ImagePeek.Preview
                 {
                     try
                     {
+                        // 动图优先：GIF / WebP 动画逐帧播放
+                        bool maybeAnim = ext == "GIF" || ext == "WEBP";
+                        if (maybeAnim)
+                        {
+                            try
+                            {
+                                var a = DecodeCore.DecodeAnimated(path, 800, token);
+                                if (!token.IsCancellationRequested && a.Frames.Count > 0)
+                                {
+                                    int totalMs = 0;
+                                    foreach (var d in a.DelaysMs)
+                                    {
+                                        totalMs += d;
+                                    }
+
+                                    if (a.Frames.Count > 1)
+                                    {
+                                        Log("Animated: " + a.Frames.Count + " frames, " + totalMs + "ms loop");
+                                        string ainfo = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   Magick",
+                                            a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
+                                            a.Frames.Count, totalMs / 1000.0);
+                                        RunOnUi(() =>
+                                        {
+                                            if (!token.IsCancellationRequested)
+                                            {
+                                                Log("SetAnimation executing on UI thread");
+                                                _control.SetAnimation(a.Frames.ToArray(), a.DelaysMs.ToArray(), a.HasAlpha, ainfo);
+                                            }
+                                        });
+                                        return;
+                                    }
+
+                                    // 单帧"动图"按静态处理
+                                    var single = a.Frames[0];
+                                    string sinfo = string.Format("{0} × {1}   {2}   {3}   ·   Magick",
+                                        single.Width, single.Height, FormatBytes(a.FileSize), ext);
+                                    RunOnUi(() =>
+                                    {
+                                        if (!token.IsCancellationRequested)
+                                        {
+                                            _control.SetImage(single, a.HasAlpha, sinfo);
+                                        }
+                                    });
+                                    return;
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
+                            catch (Exception animEx)
+                            {
+                                Log("Animated decode failed, fallback to static: " + animEx.Message);
+                            }
+                        }
+
                         DecodeResult r = DecodeCore.Decode(path, DecodeCore.DefaultMaxPixels, token);
                         if (token.IsCancellationRequested)
                         {
@@ -208,13 +264,13 @@ namespace ImagePeek.Preview
                             return;
                         }
                         string msg = "无法预览该文件" + Environment.NewLine + ex.Message;
-                        RunOnUi(() =>
+                        _control.BeginInvoke((Action)(() =>
                         {
                             if (!token.IsCancellationRequested)
                             {
                                 _control.SetMessage(msg);
                             }
-                        });
+                        }));
                     }
                 }, token);
 

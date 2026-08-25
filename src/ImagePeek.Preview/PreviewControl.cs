@@ -15,6 +15,12 @@ namespace ImagePeek.Preview
         private string _info;
         private Color _bgColor = Color.White;
 
+        // 动图播放
+        private Bitmap[] _animFrames;
+        private int[] _animDelays;
+        private int _animIndex;
+        private System.Windows.Forms.Timer _animTimer;
+
         private const int CheckerCell = 8;
         private static readonly Color CheckerA = Color.White;
         private static readonly Color CheckerB = Color.FromArgb(0xE9, 0xE9, 0xE9);
@@ -32,6 +38,7 @@ namespace ImagePeek.Preview
 
         public void SetImage(Bitmap bmp, bool hasAlpha, string info)
         {
+            StopAnimation();
             _image = bmp;
             _hasAlpha = hasAlpha;
             _info = info;
@@ -40,8 +47,59 @@ namespace ImagePeek.Preview
             Update();
         }
 
+        /// <summary>播放动图：逐帧切换，帧延迟由文件数据决定。</summary>
+        public void SetAnimation(Bitmap[] frames, int[] delaysMs, bool hasAlpha, string info)
+        {
+            if (frames == null || frames.Length == 0)
+            {
+                return;
+            }
+
+            _animFrames = frames;
+            _animDelays = delaysMs;
+            _animIndex = 0;
+            _image = frames[0];
+            _hasAlpha = hasAlpha;
+            _info = info;
+            _message = null;
+
+            if (_animTimer == null)
+            {
+                _animTimer = new System.Windows.Forms.Timer();
+                _animTimer.Tick += OnAnimTick;
+            }
+            _animTimer.Interval = Math.Max(20, delaysMs[0]);
+            _animTimer.Start();
+
+            Invalidate();
+            Update();
+        }
+
+        private void StopAnimation()
+        {
+            _animTimer?.Stop();
+            _animFrames = null;
+            _animDelays = null;
+            _animIndex = 0;
+        }
+
+        private void OnAnimTick(object sender, EventArgs e)
+        {
+            if (IsDisposed || _animFrames == null || _animFrames.Length < 2)
+            {
+                _animTimer?.Stop();
+                return;
+            }
+
+            _animIndex = (_animIndex + 1) % _animFrames.Length;
+            _image = _animFrames[_animIndex];
+            _animTimer.Interval = Math.Max(20, _animDelays[_animIndex]);
+            Invalidate();
+        }
+
         public void SetMessage(string message)
         {
+            StopAnimation();
             _message = message;
             Invalidate();
             Update();
@@ -148,7 +206,10 @@ namespace ImagePeek.Preview
         {
             if (disposing)
             {
-                // 位图归 DecodeCore 缓存所有，这里不释放 _image
+                // 位图归 DecodeCore 缓存/动图帧数组所有，这里只停动画
+                StopAnimation();
+                _animTimer?.Dispose();
+                _animTimer = null;
                 _image = null;
             }
             base.Dispose(disposing);
