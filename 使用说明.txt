@@ -1,0 +1,40 @@
+ImagePeek 使用说明
+==================
+
+【这是什么】
+在文件资源管理器中点击图片，右侧预览窗格立即显示。
+支持 29 种格式：jpg/png/gif/bmp/tiff/ico（系统级速度），
+以及 webp/avif/heic/heif/jxl/jp2/svg/psd/exr/tga/pnm 等（Magick 解码兜底），
+包括资源管理器原生无法预览的 16 位 PNG。
+
+【快速开始】
+1. 双击 ImagePeek.exe（单个便携文件，无需安装）
+2. 点击「一键启用预览」，UAC 弹窗选"是"（仅需一次）
+3. 打开资源管理器，按 Alt+P 打开预览窗格
+   （或：查看 → 显示 → 预览窗格）
+4. 点击任意图片 → 右侧立即显示
+
+【注意】
+- 启用后如果预览窗格没变化：任务管理器 → 重启"Windows 资源管理器"
+- 相邻图片会自动预加载，连续点击零等待
+- 快速查看器：命令行运行 ImagePeek.exe <图片路径>，
+  ← → 切换、滚轮缩放、双击 100%、Esc 退出
+
+【命令行】
+ImagePeek.exe --enable    启用（会弹 UAC）
+ImagePeek.exe --disable   卸载全部注册，恢复系统默认
+ImagePeek.exe --status    查看注册状态
+
+【文件位置】
+解码组件：%LocalAppData%\ImagePeek\runtime\<版本>\
+预览处理器运行于系统沙箱 prevhost.exe，崩溃不影响资源管理器。
+
+【卸载】
+主界面点「全部卸载」或运行 ImagePeek.exe --disable，
+然后删除 ImagePeek.exe 即可，不留残余。
+
+【已知限制】
+- 启用需一次 UAC 管理员确认（.NET 托管 COM 的系统限制）
+- 仅支持 64 位系统（Win10 1903+ / Win11）
+- 动图（GIF/WebP 动画）显示第一帧
+- RAW 相机格式（CR2/NEF 等）为后续版本计划

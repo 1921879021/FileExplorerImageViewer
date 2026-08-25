@@ -1,0 +1,15 @@
+# 构建产物
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+artifacts/
+
+# 测试样张与临时文件
+*.log
+TestResults/
+
+# 发布产物（exe 通过 Release 构建获得，不入库）
+/release/
+ImagePeek.exe

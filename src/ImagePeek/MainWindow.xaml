@@ -1,0 +1,74 @@
+<Window x:Class="ImagePeek.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ImagePeek — 资源管理器右侧即时图片预览"
+        Width="800" Height="680"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F6F8"
+        FontFamily="Microsoft YaHei UI" FontSize="13">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="26,24,26,20">
+
+            <TextBlock Text="ImagePeek" FontSize="26" FontWeight="Bold" Foreground="#18181B"/>
+            <TextBlock Text="在文件资源管理器中点击图片，右侧预览窗格立即显示 —— 支持 WebP / HEIC / AVIF / JXL / SVG / PSD / 16 位 PNG 等格式"
+                       Foreground="#71717A" Margin="0,4,0,18" TextWrapping="Wrap"/>
+
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="StatusDot" Width="11" Height="11" Fill="#A1A1AA" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StatusText" Text="未启用" FontSize="16" FontWeight="SemiBold" Margin="9,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="RuntimePathText" Text="解码组件尚未释放" Foreground="#A1A1AA" FontSize="11"
+                               TextWrapping="Wrap" Margin="0,7,0,14"/>
+                    <WrapPanel>
+                        <Button Content="一键启用预览" Style="{StaticResource PrimaryButton}" Click="OnEnable"/>
+                        <Button Content="全部卸载" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnDisable"/>
+                        <Button Content="打开快速查看器…" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnOpenViewer"/>
+                        <Button Content="打开图片…" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnOpenImage"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="接管的图片格式" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="系统已能正常预览的格式被接管后，将改用 ImagePeek 解码；取消勾选可保留系统默认。"
+                               Foreground="#A1A1AA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <ItemsControl x:Name="FormatsList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                          Margin="0,0,16,9" MinWidth="92"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="使用方法" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock Foreground="#52525B" TextWrapping="Wrap" LineHeight="22">
+                        1. 点击上方「一键启用预览」<Run Foreground="#A1A1AA" FontSize="11">（弹一次 UAC 管理员确认，仅写注册表）</Run><LineBreak/>
+                        2. 打开文件资源管理器，按 <Bold>Alt+P</Bold> 打开右侧预览窗格<Run Foreground="#A1A1AA" FontSize="11">（或 查看 → 显示 → 预览窗格）</Run><LineBreak/>
+                        3. 点击任意图片，右侧立即显示；相邻图片已自动预加载，连续点击零等待
+                    </TextBlock>
+                    <TextBlock Foreground="#A1A1AA" FontSize="11" TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,0">
+                        · 若启用后不生效：任务管理器 → 重启「Windows 资源管理器」<LineBreak/>
+                        · 预览由系统沙箱进程 prevhost.exe 加载，崩溃不影响资源管理器<LineBreak/>
+                        · 快速查看器：← → 切换图片，滚轮缩放，双击 100%，Esc 退出
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="FooterText" Text="ImagePeek v1.0" Foreground="#A1A1AA" FontSize="11"
+                       HorizontalAlignment="Center" Margin="0,4,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
