@@ -29,6 +29,8 @@
                         <Button Content="打开快速查看器…" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnOpenViewer"/>
                         <CheckBox x:Name="AutoStartCheck" Content="开机自启动（最小化到托盘）" VerticalAlignment="Center"
                                   Margin="14,0,0,0" Checked="OnAutoStartChanged" Unchecked="OnAutoStartChanged"/>
+                        <CheckBox x:Name="ThumbCheck" Content="文件夹内直接显示图片（缩略图）" VerticalAlignment="Center"
+                                  Margin="14,0,0,0" Checked="OnThumbChanged" Unchecked="OnThumbChanged"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>

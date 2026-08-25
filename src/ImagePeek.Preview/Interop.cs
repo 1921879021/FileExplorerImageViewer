@@ -121,4 +121,37 @@ namespace ImagePeek.Preview
         [PreserveSig]
         int ContextSensitiveHelp([MarshalAs(UnmanagedType.Bool)] bool fEnterMode);
     }
+
+    // 缩略图提供程序（shell 传入期望的最大边长 cx，返回等比 HBITMAP）
+    [ComImport]
+    [Guid("e357fccd-a995-4576-b01f-234630154e96")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IThumbnailProvider
+    {
+        [PreserveSig]
+        int GetThumbnail(uint cx, out IntPtr phbm);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFO
+    {
+        public BITMAPINFOHEADER bmiHeader;
+        public uint bmiColors; // 32bpp DIB 不需要调色板
+    }
 }

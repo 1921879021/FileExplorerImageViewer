@@ -32,6 +32,38 @@ namespace ImagePeek
             LoadFormats();
             RefreshStatus();
             AutoStartCheck.IsChecked = AutoStartManager.IsEnabled();
+            _suppressThumbEvents = true;
+            ThumbCheck.IsChecked = PreviewRegistration.IsThumbnailRegistered();
+            _suppressThumbEvents = false;
+        }
+
+        private bool _suppressThumbEvents;
+
+        private void OnThumbChanged(object sender, RoutedEventArgs e)
+        {
+            if (ThumbCheck == null || _suppressThumbEvents)
+            {
+                return;
+            }
+
+            bool want = ThumbCheck.IsChecked == true;
+            if (want == PreviewRegistration.IsThumbnailRegistered())
+            {
+                return;
+            }
+
+            if (!EnsureElevatedFor(want ? "--thumbs-on" : "--thumbs-off"))
+            {
+                _suppressThumbEvents = true;
+                ThumbCheck.IsChecked = PreviewRegistration.IsThumbnailRegistered();
+                _suppressThumbEvents = false;
+                return;
+            }
+
+            MessageBox.Show(this, want
+                ? "缩略图已启用！\n\n请重启资源管理器（任务管理器 → 重启 Windows 资源管理器），\n然后重新进入文件夹即可看到图片缩略图。\n首次浏览会逐张生成（有缓存，之后秒开）。"
+                : "缩略图已卸载，恢复系统默认。",
+                "ImagePeek", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private bool _balloonShown;
@@ -218,8 +250,13 @@ namespace ImagePeek
             {
                 PreviewRegistration.UnregisterExtensions(SupportedFormats.AllExtensions());
                 PreviewRegistration.UnregisterHandler();
+                PreviewRegistration.UnregisterThumbnailExtensions(SupportedFormats.AllExtensions());
+                PreviewRegistration.UnregisterThumbnailHandler();
                 LoadFormats();
                 RefreshStatus();
+                _suppressThumbEvents = true;
+                ThumbCheck.IsChecked = false;
+                _suppressThumbEvents = false;
                 MessageBox.Show(this, "已卸载全部注册，资源管理器恢复系统默认预览。\n（解码组件缓存已保留，可再次一键启用）",
                     "ImagePeek", MessageBoxButton.OK, MessageBoxImage.Information);
             }

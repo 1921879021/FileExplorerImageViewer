@@ -38,6 +38,11 @@ namespace ImagePeek.TestHost
                     string file = args.Length > 1 ? args[1] : null;
                     return SurrogateTest(file);
                 }
+                if (cmd == "thumbverify")
+                {
+                    string file = args.Length > 1 ? args[1] : null;
+                    return ThumbFactoryVerify(file);
+                }
                 if (cmd == "magicktest")
                 {
                     return MagickMinimalTest();
@@ -199,6 +204,82 @@ namespace ImagePeek.TestHost
                 form.Dispose();
             }
             return result;
+        }
+
+        // ---------- Explorer 缩略图管线端到端验证 ----------
+
+        [StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct SIZE
+        {
+            public int cx;
+            public int cy;
+            public SIZE(int w, int h) { cx = w; cy = h; }
+        }
+
+        private static int ThumbFactoryVerify(string file)
+        {
+            Console.WriteLine("=== Explorer 缩略图管线验证（SIIGBF_THUMBNAILONLY）===");
+            if (file == null || !File.Exists(file))
+            {
+                Console.WriteLine("用法: TestHost thumbverify <文件>");
+                return 2;
+            }
+
+            var iidFactory = new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b");
+            object o;
+            ShellNative.SHCreateItemFromParsingName(file, IntPtr.Zero, ref iidFactory, out o);
+            var factory = (ShellNative.IShellItemImageFactory)o;
+
+            IntPtr hbm;
+            int hr = factory.GetHBitmap(new SIZE(256, 256), 0x8 /* THUMBNAILONLY */, out hbm);
+            if (hr != 0)
+            {
+                Console.WriteLine("  [FAIL] GetHBitmap hr=0x" + hr.ToString("X8") + "（缩略图管线没有调用到我们的提供程序）");
+                return 1;
+            }
+            Console.WriteLine("  [OK] 缩略图管线返回 HBITMAP（说明调用了 ImagePeek 提供程序）");
+
+            using (var bmp = System.Drawing.Bitmap.FromHbitmap(hbm))
+            {
+                var colors = new System.Collections.Generic.HashSet<int>();
+                for (int y = 0; y < bmp.Height; y += 8)
+                {
+                    for (int x = 0; x < bmp.Width; x += 8)
+                    {
+                        colors.Add(bmp.GetPixel(x, y).ToArgb());
+                    }
+                }
+                string outPath = Path.Combine(Path.GetTempPath(), "ImagePeekThumbVerify.png");
+                bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                Console.WriteLine("  尺寸: " + bmp.Width + "x" + bmp.Height + "  不同颜色数=" + colors.Count);
+                Console.WriteLine("  截图: " + outPath);
+            }
+            ShellNative.DeleteObject(hbm);
+            return 0;
+        }
+
+        private static class ShellNative
+        {
+            [StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+            public struct RECTX { }
+
+            [DllImport("gdi32.dll")]
+            public static extern bool DeleteObject(IntPtr h);
+
+            [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            public interface IShellItem
+            {
+            }
+
+            [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            public interface IShellItemImageFactory
+            {
+                [PreserveSig]
+                int GetHBitmap(SIZE size, uint flags, out IntPtr phbm);
+            }
+
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+            public static extern void SHCreateItemFromParsingName(string pszPath, IntPtr pbc, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
         }
 
         // ---------- Magick 最小调用测试 ----------

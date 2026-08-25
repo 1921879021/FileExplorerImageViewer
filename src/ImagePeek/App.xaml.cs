@@ -82,6 +82,18 @@ namespace ImagePeek
                     Shutdown(0);
                     return;
                 }
+                if (string.Equals(first, "--thumbs-on", StringComparison.OrdinalIgnoreCase))
+                {
+                    Environment.ExitCode = CliThumbs(true);
+                    Shutdown(0);
+                    return;
+                }
+                if (string.Equals(first, "--thumbs-off", StringComparison.OrdinalIgnoreCase))
+                {
+                    Environment.ExitCode = CliThumbs(false);
+                    Shutdown(0);
+                    return;
+                }
 
                 // 单实例：普通 GUI 模式才检查
                 _mutex = new Mutex(true, "ImagePeek_SingleInstance", out bool createdNew);
@@ -267,12 +279,47 @@ namespace ImagePeek
             {
                 PreviewRegistration.UnregisterExtensions(SupportedFormats.AllExtensions());
                 PreviewRegistration.UnregisterHandler();
+                PreviewRegistration.UnregisterThumbnailExtensions(SupportedFormats.AllExtensions());
+                PreviewRegistration.UnregisterThumbnailHandler();
                 Console.WriteLine("ImagePeek: 已卸载全部预览注册。");
                 return 0;
             }
             catch (Exception ex)
             {
                 Console.WriteLine("ImagePeek 卸载失败: " + ex.Message);
+                return 1;
+            }
+        }
+
+        private static int CliThumbs(bool enable)
+        {
+            AttachParentConsole();
+            if (!PreviewRegistration.IsElevated())
+            {
+                return RunElevated(enable ? "--thumbs-on" : "--thumbs-off");
+            }
+            try
+            {
+                if (enable)
+                {
+                    string dir = PayloadStore.EnsureRuntime();
+                    string dll = Path.Combine(dir, "ImagePeek.Preview.dll");
+                    string asmName = System.Reflection.AssemblyName.GetAssemblyName(dll).FullName;
+                    PreviewRegistration.RegisterThumbnailHandler(dll, asmName);
+                    PreviewRegistration.RegisterThumbnailExtensions(SupportedFormats.AllExtensions());
+                    Console.WriteLine("ImagePeek: 已启用文件夹缩略图（重启资源管理器后生效）。");
+                }
+                else
+                {
+                    PreviewRegistration.UnregisterThumbnailExtensions(SupportedFormats.AllExtensions());
+                    PreviewRegistration.UnregisterThumbnailHandler();
+                    Console.WriteLine("ImagePeek: 已卸载文件夹缩略图。");
+                }
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("ImagePeek 缩略图设置失败: " + ex.Message);
                 return 1;
             }
         }

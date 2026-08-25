@@ -32,6 +32,11 @@ namespace ImagePeek.Core
         public const string ClsidBraced = "{A74E8F2C-6B3D-4F1A-9E5C-2D8B7A1F4E93}";
         public const string HandlerTitle = "ImagePeek 图片预览处理器";
 
+        // 缩略图提供程序（文件夹内直接显示图片内容）
+        public const string ThumbClsid = "D4A7B8E9-1C2F-4E3A-B5D6-7F8A9B0C1D2E";
+        public const string ThumbClsidBraced = "{D4A7B8E9-1C2F-4E3A-B5D6-7F8A9B0C1D2E}";
+        public const string ThumbnailShellexKey = "{e357fccd-a995-4576-b01f-234630154e96}";
+
         // 系统自带的中立 prevhost 代理宿主（OS 预定义 DllSurrogate），配合
         // CLSID 上的 DisableLowILProcessIsolation=1 以 Medium IL 运行
         //（CLR 无法可靠运行于 Low IL 进程，Excel 自家预览处理器同样退出沙箱）
@@ -105,6 +110,102 @@ namespace ImagePeek.Core
                 list.SetValue(ClsidBraced, HandlerTitle, Microsoft.Win32.RegistryValueKind.String);
             }
         }
+
+        // ---------- 缩略图提供程序 ----------
+
+        /// <summary>注册缩略图提供程序 COM 服务器（结构与预览处理器一致）。</summary>
+        public static void RegisterThumbnailHandler(string dllPath, string assemblyFullName)
+        {
+            if (string.IsNullOrEmpty(dllPath) || !File.Exists(dllPath))
+            {
+                throw new FileNotFoundException("找不到缩略图提供程序 DLL", dllPath);
+            }
+
+            string version = new System.Reflection.AssemblyName(assemblyFullName).Version.ToString();
+            string key = ClassesRoot + @"\CLSID\" + ThumbClsidBraced;
+
+            using (var k = ClassesBase.CreateSubKey(key))
+            {
+                k.SetValue("DisableLowILProcessIsolation", 1, Microsoft.Win32.RegistryValueKind.DWord);
+
+                using (var ips = k.CreateSubKey("InprocServer32"))
+                {
+                    ips.SetValue(null, "mscoree.dll", Microsoft.Win32.RegistryValueKind.String);
+                    ips.SetValue("ThreadingModel", "Both", Microsoft.Win32.RegistryValueKind.String);
+                    using (var ver = ips.CreateSubKey(version))
+                    {
+                        ver.SetValue("Class", "ImagePeek.Preview.ImageThumbnailProvider", Microsoft.Win32.RegistryValueKind.String);
+                        ver.SetValue("Assembly", assemblyFullName, Microsoft.Win32.RegistryValueKind.String);
+                        ver.SetValue("RuntimeVersion", "v4.0.30319", Microsoft.Win32.RegistryValueKind.String);
+                        ver.SetValue("CodeBase", new Uri(dllPath).ToString(), Microsoft.Win32.RegistryValueKind.String);
+                    }
+                }
+
+                using (var progId = k.CreateSubKey("ProgId"))
+                {
+                    progId.SetValue(null, "ImagePeek.ThumbnailProvider", Microsoft.Win32.RegistryValueKind.String);
+                }
+            }
+        }
+
+        /// <summary>把缩略图提供程序挂到一组扩展名上。</summary>
+        public static void RegisterThumbnailExtensions(IEnumerable<string> extensions)
+        {
+            foreach (var ext in extensions)
+            {
+                if (string.IsNullOrWhiteSpace(ext))
+                {
+                    continue;
+                }
+                string path = ClassesRoot + @"\." + ext.TrimStart('.') + @"\shellex\" + ThumbnailShellexKey;
+                using (var key = ClassesBase.CreateSubKey(path))
+                {
+                    key.SetValue(null, ThumbClsidBraced, Microsoft.Win32.RegistryValueKind.String);
+                }
+            }
+        }
+
+        public static void UnregisterThumbnailExtensions(IEnumerable<string> extensions)
+        {
+            foreach (var ext in extensions)
+            {
+                if (string.IsNullOrWhiteSpace(ext))
+                {
+                    continue;
+                }
+
+                string shellexPath = ClassesRoot + @"\." + ext.TrimStart('.') + @"\shellex";
+                string handlerPath = shellexPath + @"\" + ThumbnailShellexKey;
+
+                using (var key = ClassesBase.OpenSubKey(handlerPath, true))
+                {
+                    if (key != null)
+                    {
+                        var v = key.GetValue(null) as string;
+                        if (string.Equals(v, ThumbClsidBraced, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ClassesBase.DeleteSubKeyTree(handlerPath, false);
+                        }
+                    }
+                }
+                TryDeleteKeyIfEmpty(shellexPath);
+            }
+        }
+
+        public static void UnregisterThumbnailHandler()
+        {
+            ClassesBase.DeleteSubKeyTree(ClassesRoot + @"\CLSID\" + ThumbClsidBraced, false);
+        }
+
+        public static bool IsThumbnailRegistered()
+        {
+            using (var ips = ClassesBase.OpenSubKey(ClassesRoot + @"\CLSID\" + ThumbClsidBraced + @"\InprocServer32"))
+            {
+                return ips != null;
+            }
+        }
+
+        // ---------- 缩略图提供程序结束 ----------
 
         /// <summary>把处理器挂到一组扩展名上。</summary>
         public static void RegisterExtensions(IEnumerable<string> extensions)
