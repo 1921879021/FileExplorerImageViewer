@@ -1,7 +1,9 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using ImagePeek.Core;
 
@@ -9,6 +11,10 @@ namespace ImagePeek
 {
     public partial class App : Application
     {
+        private static Mutex _mutex;
+        internal static bool ExitRequested;
+        private static System.Windows.Forms.NotifyIcon _tray;
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool AttachConsole(int dwProcessId);
 
@@ -77,16 +83,139 @@ namespace ImagePeek
                     return;
                 }
 
+                // 单实例：普通 GUI 模式才检查
+                _mutex = new Mutex(true, "ImagePeek_SingleInstance", out bool createdNew);
+                if (!createdNew)
+                {
+                    MessageBox.Show("ImagePeek 已在运行（请查看任务栏托盘图标）。", "ImagePeek",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    Shutdown(0);
+                    return;
+                }
+
+                CreateTrayIcon();
+
                 string candidate = first;
                 if (File.Exists(candidate) && SupportedFormats.IsSupported(candidate))
                 {
                     new ViewerWindow(candidate).Show();
                     return;
                 }
+
+                if (string.Equals(first, "--minimized", StringComparison.OrdinalIgnoreCase))
+                {
+                    _tray.ShowBalloonTip(2500, "ImagePeek 已启动",
+                        "正在后台运行，双击托盘图标可打开设置。", System.Windows.Forms.ToolTipIcon.Info);
+                    return;
+                }
+            }
+            else
+            {
+                _mutex = new Mutex(true, "ImagePeek_SingleInstance", out bool createdNew);
+                if (!createdNew)
+                {
+                    MessageBox.Show("ImagePeek 已在运行（请查看任务栏托盘图标）。", "ImagePeek",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    Shutdown(0);
+                    return;
+                }
+                CreateTrayIcon();
             }
 
             new MainWindow().Show();
         }
+
+        // ---------- 托盘 ----------
+
+        private void CreateTrayIcon()
+        {
+            _tray = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = LoadAppIcon(),
+                Text = "ImagePeek — 资源管理器图片即时预览",
+                Visible = true
+            };
+
+            var menu = new System.Windows.Forms.ContextMenuStrip();
+            menu.Items.Add("打开设置", null, (s, ev) => ShowMain());
+            menu.Items.Add("打开快速查看器…", null, (s, ev) => OpenViewerFromDialog());
+
+            var auto = new System.Windows.Forms.ToolStripMenuItem("开机自启动")
+            {
+                CheckOnClick = true,
+                Checked = AutoStartManager.IsEnabled()
+            };
+            auto.CheckedChanged += (s, ev) =>
+            {
+                try
+                {
+                    AutoStartManager.Set(auto.Checked);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("设置开机自启动失败：\n" + ex.Message, "ImagePeek",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    auto.Checked = AutoStartManager.IsEnabled();
+                }
+            };
+            menu.Items.Add(auto);
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add("退出", null, (s, ev) => ExitApp());
+
+            _tray.ContextMenuStrip = menu;
+            _tray.DoubleClick += (s, ev) => ShowMain();
+        }
+
+        private static System.Drawing.Icon LoadAppIcon()
+        {
+            using (var s = Application.GetResourceStream(new Uri("pack://application:,,,/ImagePeek.ico")).Stream)
+            {
+                return new System.Drawing.Icon(s);
+            }
+        }
+
+        internal static void ShowMain()
+        {
+            var w = Current.Windows.OfType<MainWindow>().FirstOrDefault();
+            if (w == null)
+            {
+                w = new MainWindow();
+                w.Show();
+            }
+            else
+            {
+                w.Show();
+                w.WindowState = WindowState.Normal;
+                w.Activate();
+            }
+        }
+
+        internal static void OpenViewerFromDialog()
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择一张图片",
+                Filter = "图片文件|*.jpg;*.jpeg;*.jfif;*.png;*.gif;*.bmp;*.dib;*.tif;*.tiff;*.ico;*.webp;*.avif;*.heic;*.heif;*.hif;*.jxl;*.jp2;*.j2k;*.svg;*.svgz;*.psd;*.exr;*.hdr;*.tga;*.pbm;*.pgm;*.ppm;*.pnm;*.pfm|所有文件|*.*"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                new ViewerWindow(dlg.FileName).Show();
+            }
+        }
+
+        internal static void ExitApp()
+        {
+            ExitRequested = true;
+            if (_tray != null)
+            {
+                _tray.Visible = false;
+                _tray.Dispose();
+                _tray = null;
+            }
+            Current.Shutdown();
+        }
+
+        // ---------- 命令行 ----------
 
         private static void AttachParentConsole()
         {
@@ -152,7 +281,7 @@ namespace ImagePeek
         {
             try
             {
-                string exe = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                string exe = Assembly.GetExecutingAssembly().Location;
                 var psi = new System.Diagnostics.ProcessStartInfo(exe)
                 {
                     Arguments = arguments,
@@ -197,6 +326,7 @@ namespace ImagePeek
             }
             var exts = PreviewRegistration.GetRegisteredExtensions(SupportedFormats.AllExtensions());
             Console.WriteLine("Registered extensions (" + exts.Count + "): " + string.Join(" ", exts));
+            Console.WriteLine("Autostart: " + (AutoStartManager.IsEnabled() ? "ON" : "OFF"));
             return 0;
         }
     }

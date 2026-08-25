@@ -4,8 +4,10 @@
         Title="ImagePeek — 资源管理器右侧即时图片预览"
         Width="800" Height="680"
         WindowStartupLocation="CenterScreen"
+        Icon="ImagePeek.ico"
         Background="#F5F6F8"
-        FontFamily="Microsoft YaHei UI" FontSize="13">
+        FontFamily="Microsoft YaHei UI" FontSize="13"
+        Closing="OnWindowClosing">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="26,24,26,20">
 
@@ -25,7 +27,8 @@
                         <Button Content="一键启用预览" Style="{StaticResource PrimaryButton}" Click="OnEnable"/>
                         <Button Content="全部卸载" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnDisable"/>
                         <Button Content="打开快速查看器…" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnOpenViewer"/>
-                        <Button Content="打开图片…" Style="{StaticResource NormalButton}" Margin="10,0,0,0" Click="OnOpenImage"/>
+                        <CheckBox x:Name="AutoStartCheck" Content="开机自启动（最小化到托盘）" VerticalAlignment="Center"
+                                  Margin="14,0,0,0" Checked="OnAutoStartChanged" Unchecked="OnAutoStartChanged"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>

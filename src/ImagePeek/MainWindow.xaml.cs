@@ -31,6 +31,44 @@ namespace ImagePeek
             InitializeComponent();
             LoadFormats();
             RefreshStatus();
+            AutoStartCheck.IsChecked = AutoStartManager.IsEnabled();
+        }
+
+        private bool _balloonShown;
+
+        private void OnWindowClosing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (App.ExitRequested)
+            {
+                return; // 托盘"退出"触发的关闭，放行
+            }
+
+            e.Cancel = true;
+            Hide();
+            if (!_balloonShown)
+            {
+                _balloonShown = true;
+                MessageBox.Show(this, "ImagePeek 已最小化到任务栏托盘，双击托盘图标可重新打开。\n退出请使用托盘右键菜单。",
+                    "ImagePeek", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void OnAutoStartChanged(object sender, RoutedEventArgs e)
+        {
+            if (AutoStartCheck == null)
+            {
+                return;
+            }
+            try
+            {
+                AutoStartManager.Set(AutoStartCheck.IsChecked == true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "设置开机自启动失败：\n" + ex.Message, "ImagePeek",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                AutoStartCheck.IsChecked = AutoStartManager.IsEnabled();
+            }
         }
 
         private void LoadFormats()

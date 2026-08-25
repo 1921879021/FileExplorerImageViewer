@@ -4,6 +4,7 @@
         Title="ImagePeek 快速查看器"
         Width="1100" Height="760"
         WindowStartupLocation="CenterScreen"
+        Icon="ImagePeek.ico"
         Background="#1B1B1F"
         FontFamily="Microsoft YaHei UI" FontSize="13"
         AllowDrop="True">
