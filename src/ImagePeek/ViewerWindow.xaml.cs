@@ -145,45 +145,83 @@ namespace ImagePeek
 
             string ext = Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
             bool maybeAnim = ext == "GIF" || ext == "WEBP";
+            bool firstShown = false;
 
             Task.Run(() =>
             {
-                // 动图优先：逐帧解码并播放
+                // 动图：第一帧秒显，动画帧后台解码
                 if (maybeAnim)
                 {
                     try
                     {
-                        var a = DecodeCore.DecodeAnimated(path, ViewerMaxPixels);
-                        if (a.Frames.Count > 0)
+                        var first = DecodeCore.Decode(path, ViewerMaxPixels);
+                        firstShown = true;
+                        var firstSrc = ToImageSource(first.Bitmap);
+                        long fsize = first.FileSize;
+                        Dispatcher.BeginInvoke((Action)(() =>
                         {
-                            var sources = a.Frames.Select(ToImageSource).ToArray();
-                            var delays = a.DelaysMs.ToArray();
-                            int totalMs = delays.Sum();
-                            Dispatcher.BeginInvoke((Action)(() =>
+                            if (seq != _loadSeq)
                             {
-                                if (seq != _loadSeq)
-                                {
-                                    return;
-                                }
-
-                                Img.Source = sources[0];
-                                _fitMode = true;
-                                ApplyFit();
-                                InfoText.Text = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   {6:P0}",
-                                    a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
-                                    sources.Length, totalMs / 1000.0, _zoom);
-                                if (sources.Length > 1)
-                                {
-                                    StartAnimation(sources, delays);
-                                }
-                            }));
-                            Task.Run(() => PreloadNeighbors());
-                            return;
-                        }
+                                return;
+                            }
+                            Img.Source = firstSrc;
+                            _fitMode = true;
+                            ApplyFit();
+                            InfoText.Text = string.Format("{0} × {1}   {2}   {3}   ·   正在解码动画帧…",
+                                first.Width, first.Height, FormatBytes(fsize), ext);
+                        }));
                     }
                     catch
                     {
-                        // 落回静态解码
+                    }
+
+                    try
+                    {
+                        var a = DecodeCore.DecodeAnimated(path, 1024);
+                        if (a.Frames.Count == 0)
+                        {
+                            throw new InvalidOperationException("无帧");
+                        }
+
+                        var sources = a.Frames.Select(ToImageSource).ToArray();
+                        var delays = a.DelaysMs.ToArray();
+                        int totalMs = delays.Sum();
+                        Dispatcher.BeginInvoke((Action)(() =>
+                        {
+                            if (seq != _loadSeq)
+                            {
+                                return;
+                            }
+
+                            Img.Source = sources[0];
+                            _fitMode = true;
+                            ApplyFit();
+                            InfoText.Text = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   {6:P0}",
+                                a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
+                                sources.Length, totalMs / 1000.0, _zoom);
+                            if (sources.Length > 1)
+                            {
+                                StartAnimation(sources, delays);
+                            }
+                        }));
+                        Task.Run(() => PreloadNeighbors());
+                        return;
+                    }
+                    catch (Exception animEx)
+                    {
+                        if (firstShown)
+                        {
+                            // 静态第一帧已显示，静默结束
+                            return;
+                        }
+                        Dispatcher.BeginInvoke((Action)(() =>
+                        {
+                            if (seq == _loadSeq)
+                            {
+                                InfoText.Text = "解码失败：" + animEx.Message;
+                            }
+                        }));
+                        return;
                     }
                 }
 

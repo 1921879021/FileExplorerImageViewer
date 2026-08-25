@@ -298,7 +298,7 @@ namespace ImagePeek.TestHost
                 var a = DecodeCore.DecodeAnimated(file, 800);
                 Console.WriteLine("  帧数: " + a.Frames.Count + "  尺寸: " + a.Frames[0].Width + "x" + a.Frames[0].Height);
                 Console.WriteLine("  延迟(ms): " + string.Join(",", a.DelaysMs.Take(8)) + (a.DelaysMs.Count > 8 ? " ..." : ""));
-                Console.WriteLine("  [OK] 帧数 > 1，可播放");
+                Console.WriteLine("  [OK] 帧数 > 1，可播放  解码耗时: " + a.Ms + " ms");
                 return 0;
             }
             catch (Exception ex)

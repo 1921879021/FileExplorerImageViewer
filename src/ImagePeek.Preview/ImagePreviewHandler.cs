@@ -177,14 +177,43 @@ namespace ImagePeek.Preview
                 {
                     try
                     {
-                        // 动图优先：GIF / WebP 动画逐帧播放
+                        // 动图优先：第一帧秒显，动画帧后台解码
                         bool maybeAnim = ext == "GIF" || ext == "WEBP";
+                        bool firstShown = false;
                         if (maybeAnim)
                         {
+                            // 1) 第一帧秒显（走静态缓存，约 15ms）
+                            try
+                            {
+                                var first = DecodeCore.Decode(path, 800, token);
+                                if (!token.IsCancellationRequested)
+                                {
+                                    firstShown = true;
+                                    string finfo = string.Format("{0} × {1}   {2}   {3}   ·   正在解码动画帧…",
+                                        first.Width, first.Height, FormatBytes(first.FileSize), ext);
+                                    RunOnUi(() =>
+                                    {
+                                        if (!token.IsCancellationRequested)
+                                        {
+                                            _control.SetImage(first.Bitmap, first.HasAlpha, finfo);
+                                        }
+                                    });
+                                }
+                            }
+                            catch
+                            {
+                            }
+
+                            // 2) 后台解码全部帧（原始像素直拷 + 缓存）
                             try
                             {
                                 var a = DecodeCore.DecodeAnimated(path, 800, token);
-                                if (!token.IsCancellationRequested && a.Frames.Count > 0)
+                                if (token.IsCancellationRequested)
+                                {
+                                    return;
+                                }
+
+                                if (a.Frames.Count > 1)
                                 {
                                     int totalMs = 0;
                                     foreach (var d in a.DelaysMs)
@@ -192,44 +221,35 @@ namespace ImagePeek.Preview
                                         totalMs += d;
                                     }
 
-                                    if (a.Frames.Count > 1)
-                                    {
-                                        Log("Animated: " + a.Frames.Count + " frames, " + totalMs + "ms loop");
-                                        string ainfo = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   Magick",
-                                            a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
-                                            a.Frames.Count, totalMs / 1000.0);
-                                        RunOnUi(() =>
-                                        {
-                                            if (!token.IsCancellationRequested)
-                                            {
-                                                Log("SetAnimation executing on UI thread");
-                                                _control.SetAnimation(a.Frames.ToArray(), a.DelaysMs.ToArray(), a.HasAlpha, ainfo);
-                                            }
-                                        });
-                                        return;
-                                    }
-
-                                    // 单帧"动图"按静态处理
-                                    var single = a.Frames[0];
-                                    string sinfo = string.Format("{0} × {1}   {2}   {3}   ·   Magick",
-                                        single.Width, single.Height, FormatBytes(a.FileSize), ext);
+                                    Log("Animated: " + a.Frames.Count + " frames, " + totalMs + "ms loop, decode " + a.Ms + "ms");
+                                    string ainfo = string.Format("{0} × {1}   {2}   {3} 动图   {4} 帧 · {5:F1} 秒/循环   ·   Magick",
+                                        a.Frames[0].Width, a.Frames[0].Height, FormatBytes(a.FileSize), ext,
+                                        a.Frames.Count, totalMs / 1000.0);
                                     RunOnUi(() =>
                                     {
                                         if (!token.IsCancellationRequested)
                                         {
-                                            _control.SetImage(single, a.HasAlpha, sinfo);
+                                            Log("SetAnimation executing on UI thread");
+                                            _control.SetAnimation(a.Frames.ToArray(), a.DelaysMs.ToArray(), a.HasAlpha, ainfo);
                                         }
                                     });
                                     return;
                                 }
+
+                                // 单帧"动图"：第一帧已显示，直接结束
+                                return;
                             }
                             catch (OperationCanceledException)
                             {
-                                throw;
+                                return;
                             }
                             catch (Exception animEx)
                             {
-                                Log("Animated decode failed, fallback to static: " + animEx.Message);
+                                Log("Animated failed: " + animEx.Message);
+                                if (firstShown)
+                                {
+                                    return;   // 静态第一帧已显示，静默结束
+                                }
                             }
                         }
 

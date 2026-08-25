@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -126,9 +126,17 @@ namespace ImagePeek.Core
 
         // ---------- 动图（GIF / WebP 动画，Magick 逐帧） ----------
 
+        private static readonly object AnimGate = new object();
+        private static readonly LinkedList<KeyValuePair<string, AnimatedDecodeResult>> AnimOrder =
+            new LinkedList<KeyValuePair<string, AnimatedDecodeResult>>();
+        private static readonly Dictionary<string, LinkedListNode<KeyValuePair<string, AnimatedDecodeResult>>> AnimIndex =
+            new Dictionary<string, LinkedListNode<KeyValuePair<string, AnimatedDecodeResult>>>(StringComparer.OrdinalIgnoreCase);
+        private const int AnimCacheCapacity = 2;
+
         /// <summary>
-        /// 解码动图的全部帧。使用 Magick 的 Coalesce 合成增量帧，
-        /// 帧数上限 48、尺寸上限 maxPixels（≤1024）以控制内存。
+        /// 解码动图的全部帧。Coalesce 合成增量帧后，用原始像素直拷转 GDI+ 位图
+        /// （避免逐帧 PNG 编码/解码往返），帧数上限 48、尺寸上限 1024。
+        /// 结果带小容量缓存（2 条），重复点击零解码。
         /// </summary>
         public static AnimatedDecodeResult DecodeAnimated(string path, int maxPixels, CancellationToken ct = default(CancellationToken))
         {
@@ -147,6 +155,18 @@ namespace ImagePeek.Core
             }
 
             ct.ThrowIfCancellationRequested();
+
+            string key = BuildKey(path, maxPixels) + "|anim";
+            lock (AnimGate)
+            {
+                LinkedListNode<KeyValuePair<string, AnimatedDecodeResult>> node;
+                if (AnimIndex.TryGetValue(key, out node))
+                {
+                    AnimOrder.Remove(node);
+                    AnimOrder.AddFirst(node);
+                    return node.Value.Value;
+                }
+            }
 
             long size = 0;
             try { size = new FileInfo(path).Length; } catch { }
@@ -172,9 +192,36 @@ namespace ImagePeek.Core
                     {
                         frame.Resize((uint)maxPixels, (uint)maxPixels);
                     }
-                    frame.Format = ImageMagick.MagickFormat.Png;
-                    byte[] png = frame.ToByteArray();
-                    result.Frames.Add(new Bitmap(new MemoryStream(png)));
+                    frame.Alpha(ImageMagick.AlphaOption.Set);   // 统一 4 通道，便于直拷
+
+                    int w = (int)frame.Width, h = (int)frame.Height;
+                    byte[] rgba = frame.GetPixels().GetArea(0, 0, (uint)w, (uint)h);
+
+                    var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+                    var bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                    unsafe
+                    {
+                        fixed (byte* sp = rgba)
+                        {
+                            byte* s = sp;
+                            byte* d = (byte*)bd.Scan0;
+                            for (int y = 0; y < h; y++)
+                            {
+                                for (int x = 0; x < w; x++)
+                                {
+                                    // Magick RGBA → GDI+ BGRA
+                                    d[0] = s[2];
+                                    d[1] = s[1];
+                                    d[2] = s[0];
+                                    d[3] = s[3];
+                                    s += 4;
+                                    d += 4;
+                                }
+                            }
+                        }
+                    }
+                    bmp.UnlockBits(bd);
+                    result.Frames.Add(bmp);
 
                     int delay = (int)frame.AnimationDelay * 10;   // ticks(1/100s) → ms
                     if (delay < 20)
@@ -184,12 +231,47 @@ namespace ImagePeek.Core
                     result.DelaysMs.Add(delay);
                 }
 
-                result.HasAlpha = coll[0].HasAlpha;
+                result.HasAlpha = result.Frames.Count > 0;
             }
 
             sw.Stop();
             result.Ms = sw.Elapsed.TotalMilliseconds;
             result.FileSize = size;
+
+            // 内存保护：超过 64MB 的动画不缓存
+            long est = 0;
+            foreach (var f in result.Frames)
+            {
+                est += (long)f.Width * f.Height * 4;
+            }
+            if (est <= 64L * 1024 * 1024)
+            {
+                lock (AnimGate)
+                {
+                    if (!AnimIndex.ContainsKey(key))
+                    {
+                        var node = new LinkedListNode<KeyValuePair<string, AnimatedDecodeResult>>(
+                            new KeyValuePair<string, AnimatedDecodeResult>(key, result));
+                        AnimIndex[key] = node;
+                        AnimOrder.AddFirst(node);
+                        while (AnimOrder.Count > AnimCacheCapacity)
+                        {
+                            var last = AnimOrder.Last;
+                            if (last == null)
+                            {
+                                break;
+                            }
+                            AnimOrder.RemoveLast();
+                            AnimIndex.Remove(last.Value.Key);
+                            foreach (var f in last.Value.Value.Frames)
+                            {
+                                try { f.Dispose(); } catch { }
+                            }
+                        }
+                    }
+                }
+            }
+
             return result;
         }
 
