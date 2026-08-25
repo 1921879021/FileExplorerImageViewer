@@ -126,6 +126,8 @@ namespace ImagePeek.Core
 
             using (var k = ClassesBase.CreateSubKey(key))
             {
+                // 关闭缩略图提供程序进程隔离：隔离沙箱里托管 CLR 加载会静默失败
+                k.SetValue("DisableProcessIsolation", 1, Microsoft.Win32.RegistryValueKind.DWord);
                 k.SetValue("DisableLowILProcessIsolation", 1, Microsoft.Win32.RegistryValueKind.DWord);
 
                 using (var ips = k.CreateSubKey("InprocServer32"))
@@ -148,7 +150,7 @@ namespace ImagePeek.Core
             }
         }
 
-        /// <summary>把缩略图提供程序挂到一组扩展名上。</summary>
+        /// <summary>把缩略图提供程序挂到一组扩展名上（扩展名级 + ProgID 级都注册）。</summary>
         public static void RegisterThumbnailExtensions(IEnumerable<string> extensions)
         {
             foreach (var ext in extensions)
@@ -157,10 +159,25 @@ namespace ImagePeek.Core
                 {
                     continue;
                 }
-                string path = ClassesRoot + @"\." + ext.TrimStart('.') + @"\shellex\" + ThumbnailShellexKey;
+
+                string extKey = ClassesRoot + @"\." + ext.TrimStart('.');
+                string path = extKey + @"\shellex\" + ThumbnailShellexKey;
                 using (var key = ClassesBase.CreateSubKey(path))
                 {
                     key.SetValue(null, ThumbClsidBraced, Microsoft.Win32.RegistryValueKind.String);
+                }
+
+                // 部分 shell 查找走 ProgID 层（如 .png -> pngfile）
+                string progId = ClassesBase.OpenSubKey(extKey) != null
+                    ? (ClassesBase.OpenSubKey(extKey).GetValue(null) as string)
+                    : null;
+                if (!string.IsNullOrEmpty(progId))
+                {
+                    string progPath = ClassesRoot + @"\" + progId + @"\shellex\" + ThumbnailShellexKey;
+                    using (var key = ClassesBase.CreateSubKey(progPath))
+                    {
+                        key.SetValue(null, ThumbClsidBraced, Microsoft.Win32.RegistryValueKind.String);
+                    }
                 }
             }
         }
@@ -174,7 +191,8 @@ namespace ImagePeek.Core
                     continue;
                 }
 
-                string shellexPath = ClassesRoot + @"\." + ext.TrimStart('.') + @"\shellex";
+                string extKey = ClassesRoot + @"\." + ext.TrimStart('.');
+                string shellexPath = extKey + @"\shellex";
                 string handlerPath = shellexPath + @"\" + ThumbnailShellexKey;
 
                 using (var key = ClassesBase.OpenSubKey(handlerPath, true))
@@ -189,6 +207,31 @@ namespace ImagePeek.Core
                     }
                 }
                 TryDeleteKeyIfEmpty(shellexPath);
+
+                // ProgID 层
+                string progId = null;
+                using (var k = ClassesBase.OpenSubKey(extKey))
+                {
+                    progId = k != null ? k.GetValue(null) as string : null;
+                }
+                if (!string.IsNullOrEmpty(progId))
+                {
+                    string progShellex = ClassesRoot + @"\" + progId + @"\shellex";
+                    string progHandler = progShellex + @"\" + ThumbnailShellexKey;
+                    using (var key = ClassesBase.OpenSubKey(progHandler, true))
+                    {
+                        if (key != null)
+                        {
+                            var v = key.GetValue(null) as string;
+                            if (string.Equals(v, ThumbClsidBraced, StringComparison.OrdinalIgnoreCase))
+                            {
+                                ClassesBase.DeleteSubKeyTree(progHandler, false);
+                            }
+                        }
+                    }
+                    TryDeleteKeyIfEmpty(progShellex);
+                    TryDeleteKeyIfEmpty(ClassesRoot + @"\" + progId);
+                }
             }
         }
 
