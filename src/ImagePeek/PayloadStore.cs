@@ -1,7 +1,9 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace ImagePeek
 {
@@ -87,6 +89,156 @@ namespace ImagePeek
             CleanupOldVersions(version);
             _cachedDir = dir;
             return dir;
+        }
+
+        /// <summary>
+        /// 删除整个 %LocalAppData%\ImagePeek 目录。
+        /// 多轮尝试：杀 prevhost / 其他 ImagePeek 实例 / Explorer（缩略图 DLL 占用者），
+        /// 全部失败则注册"下次开机自动删除"。返回是否当场完全删除。
+        /// </summary>
+        public static bool RemoveAll()
+        {
+            int selfPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                KillProcess("prevhost", 0);
+                KillProcess("ImagePeek", selfPid);
+
+                try
+                {
+                    if (Directory.Exists(RootDir))
+                    {
+                        Directory.Delete(RootDir, true);
+                    }
+                }
+                catch
+                {
+                }
+
+                if (!Directory.Exists(RootDir))
+                {
+                    _cachedDir = null;
+                    return true;
+                }
+
+                if (attempt >= 1)
+                {
+                    KillProcess("explorer", 0);
+                }
+                Thread.Sleep(700);
+            }
+
+            // 兜底 1：注册开机自动删除（需要管理员，调用方处于提权流程中）
+            try
+            {
+                ScheduleDeleteOnReboot(RootDir);
+            }
+            catch
+            {
+            }
+
+            // 兜底 2：当前进程自己可能锁着目录（AssemblyResolve 从 runtime 加载了 Core.dll），
+            // 生成一个延迟 2 秒的独立清理进程，等本进程退出后删除
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                    "/c ping -n 3 127.0.0.1 > nul & rd /s /q \"" + RootDir + "\"")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch
+            {
+            }
+
+            _cachedDir = null;
+            return !Directory.Exists(RootDir);
+        }
+
+        private static void KillProcess(string name, int exceptPid)
+        {
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+                {
+                    if (exceptPid > 0 && p.Id == exceptPid)
+                    {
+                        p.Dispose();
+                        continue;
+                    }
+                    try { p.Kill(); } catch { }
+                    p.Dispose();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void ScheduleDeleteOnReboot(string path)
+        {
+            // 路径需以 \??\ 前缀写入 PendingFileRenameOperations
+            ScheduleDeleteOnRebootRecursive(path);
+        }
+
+        private static void ScheduleDeleteOnRebootRecursive(string dir)
+        {
+            try
+            {
+                foreach (var f in Directory.EnumerateFiles(dir))
+                {
+                    MoveFileEx(f, null, MOVEFILE_DELAY_UNTIL_REBOOT);
+                }
+                foreach (var d in Directory.EnumerateDirectories(dir))
+                {
+                    ScheduleDeleteOnRebootRecursive(d);
+                }
+                MoveFileEx(dir, null, MOVEFILE_DELAY_UNTIL_REBOOT);
+            }
+            catch
+            {
+            }
+        }
+
+        private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, int dwFlags);
+
+        public static bool ExplorerRunning()
+        {
+            try
+            {
+                return System.Diagnostics.Process.GetProcessesByName("explorer").Length > 0;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        /// <summary>终止 prevhost 代理进程（可能占用解码 DLL）。</summary>
+        private static void KillPrevhost()
+        {
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("prevhost"))
+                {
+                    try { p.Kill(); } catch { }
+                    p.Dispose();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        public static bool RootExists()
+        {
+            return Directory.Exists(RootDir);
         }
 
         public static long CacheSize()

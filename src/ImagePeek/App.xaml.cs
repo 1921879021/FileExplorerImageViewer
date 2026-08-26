@@ -281,7 +281,17 @@ namespace ImagePeek
                 PreviewRegistration.UnregisterHandler();
                 PreviewRegistration.UnregisterThumbnailExtensions(SupportedFormats.AllExtensions());
                 PreviewRegistration.UnregisterThumbnailHandler();
-                Console.WriteLine("ImagePeek: 已卸载全部预览注册。");
+
+                // 彻底清理：多轮删除（自动处理 prevhost / Explorer 占用）
+                bool cleaned = PayloadStore.RemoveAll();
+                if (!PayloadStore.ExplorerRunning())
+                {
+                    System.Diagnostics.Process.Start("explorer.exe");
+                }
+
+                Console.WriteLine(cleaned
+                    ? "ImagePeek: 已卸载全部注册并清理所有文件。"
+                    : "ImagePeek: 已卸载注册；个别文件被占用，重启电脑后可手动删除 %LocalAppData%\\ImagePeek。");
                 return 0;
             }
             catch (Exception ex)

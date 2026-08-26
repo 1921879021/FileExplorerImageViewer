@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -252,12 +253,23 @@ namespace ImagePeek
                 PreviewRegistration.UnregisterHandler();
                 PreviewRegistration.UnregisterThumbnailExtensions(SupportedFormats.AllExtensions());
                 PreviewRegistration.UnregisterThumbnailHandler();
+
+                // 彻底清理文件（自动处理 prevhost / Explorer 占用）
+                bool cleaned = PayloadStore.RemoveAll();
+                if (!PayloadStore.ExplorerRunning())
+                {
+                    System.Diagnostics.Process.Start("explorer.exe");
+                }
+
                 LoadFormats();
                 RefreshStatus();
                 _suppressThumbEvents = true;
                 ThumbCheck.IsChecked = false;
                 _suppressThumbEvents = false;
-                MessageBox.Show(this, "已卸载全部注册，资源管理器恢复系统默认预览。\n（解码组件缓存已保留，可再次一键启用）",
+
+                MessageBox.Show(this, cleaned
+                    ? "已卸载全部注册并清理所有文件，资源管理器恢复系统默认。"
+                    : "已卸载全部注册。个别文件被占用，重启电脑后可手动删除 %LocalAppData%\\ImagePeek 文件夹。",
                     "ImagePeek", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
